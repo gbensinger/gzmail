@@ -302,7 +302,7 @@ function banner(text, action) {
 async function doSync(interactive = false) {
   if (syncing) return;
   if (!gm.hasToken()) {
-    if (!interactive) return banner('Showing saved emails.', 'Tap to check for new mail');
+    if (!interactive) return contacts.length && banner('Showing saved emails.', 'Tap to check for new mail');
     try { await gm.signIn(); } catch (e) { return banner('Sign-in failed: ' + e.message, 'Try again'); }
   }
   syncing = true;

@@ -10,6 +10,7 @@ const PAGE = 150;
 let contacts = [];
 let chat = null; // { contact, msgs, shown, replyTo, replyAll, newSubject }
 let syncing = false;
+const loadStatus = new Map(); // contactId -> progress text while its history loads
 
 // ---------- formatting ----------
 const DAY = 864e5;
@@ -63,7 +64,9 @@ function renderContacts() {
     const main = el('div', 'row-main');
     const top = el('div', 'row-top');
     top.append(el('b', null, c.name), el('time', null, c.last ? shortDate(c.last.date) : ''));
-    const pv = c.last ? (c.last.out ? 'You: ' : '') + c.last.text.replace(/\s+/g, ' ') : c.count === 0 ? 'No emails yet' : 'Loading…';
+    const pv = loadStatus.get(c.id) || (queued.has(c.id) ? 'Waiting to load…'
+      : c.last ? (c.last.out ? 'You: ' : '') + c.last.text.replace(/\s+/g, ' ')
+      : c.count === 0 ? 'No emails found' : 'Not finished loading. Tap ↻ to continue');
     main.append(top, el('div', 'preview', pv));
     li.append(av, main);
     li.onclick = () => location.hash = 'c/' + c.id;
@@ -277,9 +280,15 @@ async function runBackfill(contact) {
   const bar = $('#progress');
   const show = () => chat?.contact.id === contact.id;
   let lastRender = 0;
+  const status = text => {
+    loadStatus.set(contact.id, text);
+    if (!chat && Date.now() - lastRender > 1000) { lastRender = Date.now(); renderContacts(); }
+  };
   try {
+    status('Finding emails…');
     if (show()) { bar.hidden = false; bar.querySelector('span').textContent = 'Finding emails…'; }
     await gm.backfill(contact, async (done, total) => {
+      status(total ? `Loading history… ${done} / ${total}` : 'Finding emails…');
       if (!show()) return;
       bar.hidden = false;
       bar.querySelector('div').style.width = total ? (done / total * 100) + '%' : '0';
@@ -289,10 +298,12 @@ async function runBackfill(contact) {
     const c = await db.get('contacts', contact.id);
     if (c) { c.complete = true; if (c.last) c.seen = c.last.date; await db.put('contacts', c); }
   } catch (err) {
-    const msg = `Couldn't finish loading ${contact.name} (${err.message}).`;
-    banner(msg, 'Retry', () => withGmail(async () => queueBackfill(contact)));
-    if (show()) alert(msg + '\nIt will pick up where it left off next time you refresh.');
+    const expired = err instanceof real.AuthError;
+    banner(expired ? 'Gmail sign-in expired before every contact finished loading.'
+      : `Couldn't finish loading ${contact.name} (${err.message}).`, 'Tap to continue');
+    if (show()) alert(`Couldn't finish loading ${contact.name}. Tap ↻ on the contact list to continue where it left off.`);
   } finally {
+    loadStatus.delete(contact.id);
     bar.hidden = true;
     if (show()) await reloadChat(); else loadContacts();
   }

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; connect-src 'self' https://gmail.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>GzMail</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<section id="list" class="view">
+  <header class="bar">
+    <h1>Messages</h1>
+    <button id="syncBtn" class="icon" aria-label="Refresh">↻</button>
+    <button id="addBtn" class="icon" aria-label="Add contact">＋</button>
+  </header>
+  <div id="banner" hidden></div>
+  <div class="search"><input id="search" type="search" placeholder="Search" autocomplete="off"></div>
+  <ul id="contacts"></ul>
+  <p id="empty" class="hint" hidden>Tap ＋ to add someone you email with.<br>Their full history will be pulled from Gmail.</p>
+</section>
+
+<section id="chat" class="view" hidden>
+  <header class="bar">
+    <button id="backBtn" class="icon" aria-label="Back">‹</button>
+    <button id="chatTitle" class="title"></button>
+    <span class="icon"></span>
+  </header>
+  <div id="progress" hidden><div></div><span></span></div>
+  <div id="scroller"><div id="top"></div><div id="bubbles"></div></div>
+  <form id="composer">
+    <div id="replyChip" hidden><span></span><button type="button" aria-label="Clear">×</button></div>
+    <input id="subject" placeholder="Subject" hidden>
+    <div class="row">
+      <button type="button" id="subjBtn" class="icon small" aria-label="New subject">✎</button>
+      <textarea id="msg" rows="1" placeholder="Email"></textarea>
+      <button id="sendBtn" class="send" aria-label="Send" disabled>↑</button>
+    </div>
+  </form>
+</section>
+
+<dialog id="detail">
+  <form method="dialog">
+    <dl id="detailMeta"></dl>
+    <div id="detailAtts"></div>
+    <pre id="detailBody"></pre>
+    <div class="actions">
+      <button type="button" id="replyHere">Reply to this</button>
+      <button type="button" id="replyAll">Reply all</button>
+      <a id="openGmail" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+      <button>Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="editor">
+  <form method="dialog" id="editForm">
+    <h2 id="editTitle">New contact</h2>
+    <label>Name<input id="editName" required autocomplete="off"></label>
+    <label>Email address(es)<input id="editEmails" required autocomplete="off" inputmode="email" placeholder="a@x.com, b@y.com"></label>
+    <div class="actions">
+      <button type="button" id="editDelete" class="danger" hidden>Delete</button>
+      <button value="cancel" formnovalidate>Cancel</button>
+      <button value="ok" class="primary">Save</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>

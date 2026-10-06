@@ -47,6 +47,8 @@ export async function fakeGmail(real) {
     hasToken: () => true,
     signIn: async () => {},
     sync: async () => [],
+    backupContacts: async cs => localStorage.setItem('gz.demoBackup', JSON.stringify(cs.map(c => ({ name: c.name, addresses: c.addresses })))),
+    fetchBackup: async () => JSON.parse(localStorage.getItem('gz.demoBackup')),
     backfill: async c => { await db.put('contacts', { ...c, count: 0 }); },
     send: async ({ to, cc, subject, body, replyTo, contactId }) => {
       const m = { id: 'm' + Date.now(), threadId: replyTo?.threadId || 'new', date: Date.now(), from: { name: '', email: ME },

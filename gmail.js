@@ -38,16 +38,34 @@ export function signOut() {
 
 export class AuthError extends Error {}
 
-async function api(path, opts = {}, tries = 4) {
+// Gmail allows 250 quota units/sec per user (a message fetch costs 5), so space requests ~30ms apart.
+let nextSlot = 0;
+const sleep = ms => new Promise(s => setTimeout(s, ms));
+async function throttle() {
+  const now = Date.now();
+  const wait = Math.max(0, nextSlot - now);
+  nextSlot = Math.max(now, nextSlot) + 30;
+  if (wait) await sleep(wait);
+}
+
+const RETRY_REASONS = ['rateLimitExceeded', 'userRateLimitExceeded', 'backendError', 'quotaExceeded'];
+
+async function api(path, opts = {}, attempt = 0) {
   if (!hasToken()) throw new AuthError('Not signed in');
+  await throttle();
   const r = await fetch(API + path, { ...opts, headers: { Authorization: 'Bearer ' + token, ...opts.headers } });
   if (r.status === 401) { token = null; localStorage.removeItem('gz.token'); throw new AuthError('Session expired'); }
-  if ((r.status === 429 || r.status >= 500) && tries > 0) {
-    await new Promise(s => setTimeout(s, (5 - tries) * 1000 + Math.random() * 500));
-    return api(path, opts, tries - 1);
+  if (r.ok) return r.json();
+  const err = await r.json().catch(() => ({}));
+  const reason = err.error?.errors?.[0]?.reason || err.error?.status || '';
+  const retry = r.status === 429 || r.status >= 500 || (r.status === 403 && RETRY_REASONS.includes(reason));
+  if (retry && attempt < 6) {
+    await sleep(Math.min(32, 2 ** attempt) * 1000 + Math.random() * 1000);
+    return api(path, opts, attempt + 1);
   }
-  if (!r.ok) { const e = new Error(`Gmail ${r.status}`); e.status = r.status; throw e; }
-  return r.json();
+  const e = new Error(`Gmail ${r.status}${reason ? ' ' + reason : ''}: ${err.error?.message || r.statusText}`);
+  e.status = r.status;
+  throw e;
 }
 
 // Run fn over items with limited concurrency (Gmail allows ~50 message fetches/sec).
@@ -263,7 +281,7 @@ const utf8 = s => new TextEncoder().encode(s);
 const encHeader = s => /[^\x20-\x7e]/.test(s) ? `=?UTF-8?B?${b64(utf8(s))}?=` : s;
 const fmtAddr = a => a.name ? `${encHeader(/[",<>@]/.test(a.name) ? `"${a.name.replace(/"/g, '')}"` : a.name)} <${a.email}>` : a.email;
 
-export async function send({ to, cc = [], subject, body, replyTo, contactId }) {
+function sendRaw({ to, cc = [], subject, body, replyTo }) {
   const lines = [
     `From: ${ME}`,
     `To: ${to.map(fmtAddr).join(', ')}`,
@@ -278,15 +296,44 @@ export async function send({ to, cc = [], subject, body, replyTo, contactId }) {
     b64(utf8(body)).replace(/.{76}/g, '$&\r\n'),
   ].filter(x => typeof x === 'string');
   const raw = b64(utf8(lines.join('\r\n'))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-  const sent = await api('messages/send', {
+  return api('messages/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(replyTo?.threadId ? { raw, threadId: replyTo.threadId } : { raw }),
   });
+}
+
+export async function send({ contactId, ...msg }) {
+  const sent = await sendRaw(msg);
   const m = parseMessage(await api(`messages/${sent.id}?format=full`));
   m.contactIds = matchContacts(m, await db.all('contacts'));
   if (!m.contactIds.includes(contactId)) m.contactIds.push(contactId);
   await db.upsertMessages([m]);
   for (const c of m.contactIds) await refreshSummary(c);
   return m;
+}
+
+// ---------- contact list backup (an email to yourself, so every device can restore it) ----------
+const BACKUP_SUBJECT = 'GzMail contact list backup';
+const BACKUP_START = '----- GZMAIL CONTACTS START -----', BACKUP_END = '----- GZMAIL CONTACTS END -----';
+
+export async function backupContacts(contacts) {
+  const list = contacts.map(c => ({ name: c.name, addresses: c.addresses }));
+  const body = 'GzMail uses this email to restore your contact list on another device. ' +
+    'Only the newest one is used, so older copies can be deleted.\n\n' +
+    list.map(c => `${c.name}: ${c.addresses.join(', ')}`).join('\n') +
+    `\n\n${BACKUP_START}\n${JSON.stringify(list)}\n${BACKUP_END}\n`;
+  await sendRaw({ to: [{ name: '', email: ME }], subject: `${BACKUP_SUBJECT} (${list.length} contacts)`, body });
+}
+
+// Returns [{name, addresses}] from the newest backup email, or null if none exists.
+export async function fetchBackup() {
+  const q = encodeURIComponent(`from:${ME} to:${ME} subject:"${BACKUP_SUBJECT}"`);
+  const r = await api(`messages?maxResults=1&q=${q}`);
+  if (!r.messages?.length) return null;
+  const acc = { atts: [], plain: null, html: null };
+  walk((await api(`messages/${r.messages[0].id}?format=full`)).payload, acc);
+  const text = acc.plain ?? htmlToText(acc.html || '', false);
+  const json = text.slice(text.indexOf(BACKUP_START) + BACKUP_START.length, text.indexOf(BACKUP_END));
+  return JSON.parse(json.replace(/\s*\n\s*/g, ''));
 }

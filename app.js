@@ -248,16 +248,29 @@ function openEditor(c) {
     if ($('#editor').returnValue !== 'ok') return;
     const addresses = [...new Set($('#editEmails').value.toLowerCase().split(/[\s,;]+/).filter(a => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(a)))];
     if (!addresses.length) return alert('Please enter a valid email address.');
-    const contact = c ? { ...c } : { id: crypto.randomUUID(), count: null, last: null };
+    const contact = c ? { ...c } : { id: crypto.randomUUID(), count: null, last: null, complete: false };
     const added = addresses.some(a => !c?.addresses.includes(a));
     Object.assign(contact, { name: $('#editName').value.trim(), addresses });
+    if (added) contact.complete = false;
     await db.put('contacts', contact);
     if (c) { $('#chatTitle').textContent = contact.name; chat && (chat.contact = contact); }
     else location.hash = 'c/' + contact.id;
-    if (added) runBackfill(contact);
+    if (contact.complete !== true) {
+      if (!gm.hasToken()) try { await gm.signIn(); } catch (e) { return alert('Sign-in failed: ' + e.message); }
+      queueBackfill(contact);
+    }
   };
   $('#editor').returnValue = '';
   $('#editor').showModal();
+}
+
+// History loads run one at a time so they stay under Gmail's rate limit.
+const queued = new Set();
+let queue = Promise.resolve();
+function queueBackfill(contact) {
+  if (queued.has(contact.id)) return;
+  queued.add(contact.id);
+  queue = queue.then(() => runBackfill(contact)).finally(() => queued.delete(contact.id));
 }
 
 async function runBackfill(contact) {
@@ -265,7 +278,6 @@ async function runBackfill(contact) {
   const show = () => chat?.contact.id === contact.id;
   let lastRender = 0;
   try {
-    if (!gm.hasToken()) await gm.signIn();
     if (show()) { bar.hidden = false; bar.querySelector('span').textContent = 'Finding emails…'; }
     await gm.backfill(contact, async (done, total) => {
       if (!show()) return;
@@ -275,9 +287,11 @@ async function runBackfill(contact) {
       if (Date.now() - lastRender > 1500) { lastRender = Date.now(); reloadChat(); }
     });
     const c = await db.get('contacts', contact.id);
-    if (c?.last) { c.seen = c.last.date; await db.put('contacts', c); }
+    if (c) { c.complete = true; if (c.last) c.seen = c.last.date; await db.put('contacts', c); }
   } catch (err) {
-    alert('Could not load history: ' + err.message + '\nOpen the contact again and tap its name → Save to retry.');
+    const msg = `Couldn't finish loading ${contact.name} (${err.message}).`;
+    banner(msg, 'Retry', () => withGmail(async () => queueBackfill(contact)));
+    if (show()) alert(msg + '\nIt will pick up where it left off next time you refresh.');
   } finally {
     bar.hidden = true;
     if (show()) await reloadChat(); else loadContacts();
@@ -289,14 +303,46 @@ $('#chatTitle').onclick = () => openEditor(chat.contact);
 $('#backBtn').onclick = () => history.length > 1 ? history.back() : (location.hash = '');
 $('#search').oninput = renderContacts;
 
+// ---------- contact list backup / restore (via an email to yourself) ----------
+async function withGmail(fn) {
+  try {
+    if (!gm.hasToken()) await gm.signIn();
+    await fn();
+  } catch (e) { alert(e.message); }
+}
+
+$('#menuBtn').onclick = () => $('#menu').showModal();
+$('#backupBtn').onclick = () => withGmail(async () => {
+  if (!contacts.length) return alert('No contacts to back up yet.');
+  await gm.backupContacts(contacts);
+  $('#menu').close();
+  alert(`Backed up ${contacts.length} contact${contacts.length > 1 ? "s" : ""} as an email to yourself ("GzMail contact list backup"). Use Restore on your other devices.`);
+});
+const restore = () => withGmail(async () => {
+  const list = await gm.fetchBackup();
+  if (!list) return alert('No backup found. On the device that has your contacts, tap ⋯ → Back up contact list.');
+  $('#menu').close();
+  const have = new Set(contacts.flatMap(c => c.addresses));
+  const fresh = list.filter(c => !c.addresses.some(a => have.has(a)));
+  for (const c of fresh) {
+    const contact = { id: crypto.randomUUID(), name: c.name, addresses: c.addresses, count: null, last: null, complete: false };
+    await db.put('contacts', contact);
+    queueBackfill(contact);
+  }
+  await loadContacts();
+  alert(fresh.length ? `Restored ${fresh.length} contact${fresh.length > 1 ? "s" : ""}. Their email history is loading now, one contact at a time.` : 'All contacts in the backup are already here.');
+});
+$('#restoreBtn').onclick = restore;
+$('#emptyRestore').onclick = restore;
+
 // ---------- sync ----------
-function banner(text, action) {
+function banner(text, action, fn = () => doSync(true)) {
   const b = $('#banner');
   b.hidden = !text;
   b.replaceChildren();
   if (!text) return;
   b.append(text + ' ');
-  if (action) { const btn = el('button', null, action); btn.onclick = () => doSync(true); b.append(btn); }
+  if (action) { const btn = el('button', null, action); btn.onclick = fn; b.append(btn); }
 }
 
 async function doSync(interactive = false) {
@@ -312,6 +358,7 @@ async function doSync(interactive = false) {
     const touched = await gm.sync();
     if (chat && touched?.includes(chat.contact.id)) await reloadChat();
     await loadContacts();
+    contacts.filter(c => c.complete !== true).forEach(c => queueBackfill(c)); // resume interrupted loads
   } catch (e) {
     if (e instanceof real.AuthError) banner('Gmail session expired.', 'Tap to reconnect');
     else banner('Could not reach Gmail (' + e.message + ').', 'Retry');

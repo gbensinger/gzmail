@@ -20,11 +20,13 @@
     <h1>Messages</h1>
     <button id="syncBtn" class="icon" aria-label="Refresh">↻</button>
     <button id="addBtn" class="icon" aria-label="Add contact">＋</button>
+    <button id="menuBtn" class="icon" aria-label="Menu">⋯</button>
   </header>
   <div id="banner" hidden></div>
   <div class="search"><input id="search" type="search" placeholder="Search" autocomplete="off"></div>
   <ul id="contacts"></ul>
-  <p id="empty" class="hint" hidden>Tap ＋ to add someone you email with.<br>Their full history will be pulled from Gmail.</p>
+  <p id="empty" class="hint" hidden>Tap ＋ to add someone you email with.<br>Their full history will be pulled from Gmail.<br><br>
+    Already set up on another device?<br><button id="emptyRestore" class="link">Restore contact list from Gmail</button></p>
 </section>
 
 <section id="chat" class="view" hidden>
@@ -55,6 +57,18 @@
       <button type="button" id="replyHere">Reply to this</button>
       <button type="button" id="replyAll">Reply all</button>
       <a id="openGmail" target="_blank" rel="noopener noreferrer">Open in Gmail</a>
+      <button>Close</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="menu">
+  <form method="dialog">
+    <h2>Contact list</h2>
+    <p class="note">Each device keeps its own copy. To move your contact list between devices, back it up as an email to yourself, then restore it on the other device.</p>
+    <div class="actions stack">
+      <button type="button" id="backupBtn" class="primary">Back up contact list to Gmail</button>
+      <button type="button" id="restoreBtn">Restore contact list from Gmail</button>
       <button>Close</button>
     </div>
   </form>

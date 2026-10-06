@@ -96,3 +96,6 @@ dialog form { padding: 18px; display: flex; flex-direction: column; gap: 10px; m
 label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
 label input { font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
 h2 { margin: 0 0 4px; font-size: 18px; }
+.actions.stack { flex-direction: column; align-items: stretch; }
+.note { margin: 0; font-size: 14px; color: var(--muted); line-height: 1.4; }
+button.link { color: var(--accent); font-weight: 600; padding: 6px; }

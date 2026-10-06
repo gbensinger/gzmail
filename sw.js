@@ -1,5 +1,5 @@
 // Caches the app shell only (never email or Google traffic) so the app opens instantly and offline.
-const CACHE = 'gzmail-v1';
+const CACHE = 'gzmail-v2';
 const SHELL = ['./', 'index.html', 'app.css', 'app.js', 'db.js', 'gmail.js', 'config.js', 'demo.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL)).then(() => self.skipWaiting())));
